@@ -14,10 +14,10 @@ const http                          = require('http');
 // ──────────────────────────────────────────────────────────────
 //  AYARLAR
 // ──────────────────────────────────────────────────────────────
-const DISCORD_TOKEN    = process.env.DISCORD_TOKEN || '';
-const GROQ_API_KEY     = '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';
-const GITHUB_TOKEN     = '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';
-const GITHUB_REPO      = 'coniconiindirdoni-cell/ai-backup';
+const DISCORD_TOKEN    = process.env.DISCORD_TOKEN  || '';
+const GROQ_API_KEY     = process.env.GROQ_API_KEY   || '';
+const GITHUB_TOKEN     = process.env.GITHUB_TOKEN   || '';
+const GITHUB_REPO      = process.env.GITHUB_REPO    || 'coniconiindirdoni-cell/ai-backup';
 const GITHUB_FILE      = 'kullanim.json';
 const KANAL_ID         = '1526015242365042721';
 const LIMIT            = 50;          // 12 saatte kaç soru
@@ -149,21 +149,31 @@ function hakKullan(userId) {
 // ──────────────────────────────────────────────────────────────
 const groq = new Groq({ apiKey: GROQ_API_KEY });
 
+const GROQ_MODELLER = [
+  'llama-3.3-70b-versatile',
+  'llama3-70b-8192',
+  'llama3-8b-8192',
+  'mixtral-8x7b-32768',
+];
+
 async function askGroq(soru) {
-  try {
-    const res = await groq.chat.completions.create({
-      model: 'llama3-70b-8192',
-      messages: [
-        { role: 'system', content: AI_SYSTEM_PROMPT },
-        { role: 'user',   content: soru },
-      ],
-      max_tokens: 1000,
-    });
-    return res.choices[0].message.content.trim();
-  } catch (e) {
-    console.log('[Groq] Hata:', e.message);
-    return '❌ Şu an AI servisine ulaşılamıyor. Biraz sonra tekrar dene!';
+  for (const model of GROQ_MODELLER) {
+    try {
+      const res = await groq.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: AI_SYSTEM_PROMPT },
+          { role: 'user',   content: soru },
+        ],
+        max_tokens: 1000,
+      });
+      console.log(`[Groq] ${model} başarılı`);
+      return res.choices[0].message.content.trim();
+    } catch (e) {
+      console.log(`[Groq] ${model} hata: ${e.message}`);
+    }
   }
+  return '❌ Şu an AI servisine ulaşılamıyor. Biraz sonra tekrar dene!';
 }
 
 // ──────────────────────────────────────────────────────────────
