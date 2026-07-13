@@ -15,14 +15,24 @@ const http                          = require('http');
 //  AYARLAR
 // ──────────────────────────────────────────────────────────────
 const DISCORD_TOKEN    = process.env.DISCORD_TOKEN  || '';
-const GROQ_API_KEY     = process.env.GROQ_API_KEY   || '';
+const GROQ_botuşuI_KEY     = process.env.GROQ_API_KEY   || '';
 const GITHUB_TOKEN     = process.env.GITHUB_TOKEN   || '';
 const GITHUB_REPO      = process.env.GITHUB_REPO    || 'coniconiindirdoni-cell/ai-backup';
 const GITHUB_FILE      = 'kullanim.json';
 const KANAL_ID         = '1526015242365042721';
 const LIMIT            = 50;          // 12 saatte kaç soru
 const LIMIT_MS         = 12 * 60 * 60 * 1000; // 12 saat (ms)
-const AI_SYSTEM_PROMPT = 'Sen yardımcı bir Discord botusun. Türkçe konuş, kısa ve net cevaplar ver.';
+const AI_SYSTEM_PROMPT = `Sen DeathWish sunucusunun AI botusun, adın Deathwish Ai. Türkçe konuş.
+
+Kişiliğin:
+- Brainrot dost canlısı kardeş modasındasın — "kanka", "bro", "ya", "abi", "la" gibi kelimeler doğal kullanırsın
+- Çok resmi değilsin, sohbet havasındasın ama saçmalamamaya çalışırsın
+- Kısa ve öz cevap ver, roman yazmak yok
+- Eğer soru saçmaysa "ya bro bu soru da ne 💀" tarzı tepki ver
+- Eğer bir şeyi bilmiyorsan "ya bilemedim bro, google'la dene" diyebilirsin
+- Ara sıra "bro", "kanka", "ya la", "fr fr", "no cap", "sıkma kafanı" gibi ifadeler kullan ama abartma
+- Ciddi sorulara ciddi cevap ver ama yine de sohbet havasını koru
+- Emoji kullan ama her cümleye değil, doğal olsun`;
 
 if (!DISCORD_TOKEN) {
   console.error('❌ DISCORD_TOKEN bulunamadı!');
