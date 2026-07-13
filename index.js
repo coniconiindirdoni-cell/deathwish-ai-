@@ -1,118 +1,173 @@
 // ╔══════════════════════════════════════════════════════════════╗
 // ║              AI Soru-Cevap Botu — TEK DOSYA                 ║
-// ║  Bot @ etiketlenince sorulan soruya AI ile cevap verir.     ║
-// ║  Sırasıyla dener: ChatGPT → Gemini → Groq                   ║
-// ╠══════════════════════════════════════════════════════════════╣
-// ║  Gerekli paketler (npm install):                             ║
-// ║    discord.js  openai  @google/generative-ai  groq-sdk  dotenv ║
-// ╠══════════════════════════════════════════════════════════════╣
-// ║  .env dosyasına eklenecekler:                                ║
-// ║    DISCORD_TOKEN   = Discord bot token                       ║
-// ║    OPENAI_API_KEY  = ChatGPT API anahtarı   (opsiyonel)      ║
-// ║    GEMINI_API_KEY  = Gemini API anahtarı    (opsiyonel)      ║
-// ║    GROQ_API_KEY    = Groq API anahtarı      (opsiyonel)      ║
-// ║    AI_SYSTEM_PROMPT= Botun kişiliği         (opsiyonel)      ║
-// ║  En az 1 AI anahtarı olması yeterli.                         ║
+// ║  Bot @ etiketlenince sorulan soruya Groq ile cevap verir.   ║
+// ║  12 saatte kullanıcı başına 50 soru hakkı                   ║
+// ║  Kullanım verileri GitHub'a yedeklenir                      ║
 // ╚══════════════════════════════════════════════════════════════╝
 
 require('dotenv').config();
 
 const { Client, GatewayIntentBits } = require('discord.js');
-const { OpenAI }                    = require('openai');
-const { GoogleGenerativeAI }        = require('@google/generative-ai');
 const Groq                          = require('groq-sdk');
+const http                          = require('http');
 
 // ──────────────────────────────────────────────────────────────
 //  AYARLAR
 // ──────────────────────────────────────────────────────────────
-const DISCORD_TOKEN    = process.env.DISCORD_TOKEN    || '';
-const OPENAI_API_KEY   = process.env.OPENAI_API_KEY   || '';
-const GEMINI_API_KEY   = process.env.GEMINI_API_KEY   || 'AQ.Ab8RN6J2vLoe1u36Y06SSSCXOS7CjezPIWl61WBTDy7qkwi0PA';
-const GROQ_API_KEY     = process.env.GROQ_API_KEY     || '';
-const AI_SYSTEM_PROMPT = process.env.AI_SYSTEM_PROMPT ||
-  'Sen yardımcı bir Discord botusun. Türkçe konuş, kısa ve net cevaplar ver.';
+const DISCORD_TOKEN    = process.env.DISCORD_TOKEN || '';
+const GROQ_API_KEY     = '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';
+const GITHUB_TOKEN     = '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';
+const GITHUB_REPO      = 'coniconiindirdoni-cell/ai-backup';
+const GITHUB_FILE      = 'kullanim.json';
+const KANAL_ID         = '1526015242365042721';
+const LIMIT            = 50;          // 12 saatte kaç soru
+const LIMIT_MS         = 12 * 60 * 60 * 1000; // 12 saat (ms)
+const AI_SYSTEM_PROMPT = 'Sen yardımcı bir Discord botusun. Türkçe konuş, kısa ve net cevaplar ver.';
 
 if (!DISCORD_TOKEN) {
-  console.error('❌ DISCORD_TOKEN bulunamadı! .env dosyasını kontrol et.');
+  console.error('❌ DISCORD_TOKEN bulunamadı!');
   process.exit(1);
 }
 
-if (!OPENAI_API_KEY && !GEMINI_API_KEY && !GROQ_API_KEY) {
-  console.warn('⚠️  Hiçbir AI API anahtarı bulunamadı. Bot çalışır ama cevap veremez.');
+// ──────────────────────────────────────────────────────────────
+//  GITHUB YEDEK — yükle / kaydet
+// ──────────────────────────────────────────────────────────────
+// Map<userId, { baslangic: timestamp, sayi: number }>
+let kullanimMap = new Map();
+let sonYedekJson = null; // bot kapanınca boşsa bunu kullanırız
+
+async function githubDosyaOku() {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE}`,
+      { headers: { Authorization: `token ${GITHUB_TOKEN}`, Accept: 'application/vnd.github.v3+json' } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const icerik = Buffer.from(data.content, 'base64').toString('utf8').trim();
+    return { icerik, sha: data.sha };
+  } catch (e) {
+    console.log('[GitHub] Okuma hatası:', e.message);
+    return null;
+  }
 }
 
-// ──────────────────────────────────────────────────────────────
-//  AI FALLBACK: ChatGPT → Gemini → Groq
-// ──────────────────────────────────────────────────────────────
-async function askAI(soru) {
-  const messages = [
-    { role: 'system', content: AI_SYSTEM_PROMPT },
-    { role: 'user',   content: soru },
-  ];
-
-  // 1️⃣  ChatGPT
-  if (OPENAI_API_KEY) {
-    try {
-      const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-      const res = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages,
-        max_tokens: 1000,
-      });
-      return res.choices[0].message.content.trim();
-    } catch (e) {
-      console.log(`[AI] ChatGPT hata (${e?.status ?? e?.message}) → Gemini deneniyor...`);
-    }
+async function githubYukle() {
+  const sonuc = await githubDosyaOku();
+  if (!sonuc) {
+    console.log('[GitHub] Dosya bulunamadı veya hata — boş harita ile başlıyorum.');
+    return;
   }
+  try {
+    const obj = JSON.parse(sonuc.icerik);
+    if (obj && typeof obj === 'object' && Object.keys(obj).length > 0) {
+      kullanimMap = new Map(Object.entries(obj));
+      sonYedekJson = sonuc.icerik;
+      console.log(`[GitHub] Veri yüklendi: ${kullanimMap.size} kullanıcı`);
+    } else if (sonYedekJson) {
+      // Dosya boş — son yedeği kullan
+      kullanimMap = new Map(Object.entries(JSON.parse(sonYedekJson)));
+      console.log('[GitHub] Dosya boştu, son yedek kullanıldı.');
+    }
+  } catch (e) {
+    console.log('[GitHub] JSON parse hatası:', e.message);
+  }
+}
 
-  // 2️⃣  Gemini (direkt REST API — SDK bypass)
-  if (GEMINI_API_KEY) {
-    const geminiModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro'];
-    for (const modelAdi of geminiModels) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelAdi}:generateContent?key=${GEMINI_API_KEY}`;
-        const body = JSON.stringify({
-          system_instruction: { parts: [{ text: AI_SYSTEM_PROMPT }] },
-          contents: [{ parts: [{ text: soru }] }],
-        });
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body,
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error?.message || res.status);
-        const cevap = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (!cevap) throw new Error('Boş cevap');
-        console.log(`[AI] Gemini (${modelAdi}) başarılı`);
-        return cevap;
-      } catch (e) {
-        console.log(`[AI] Gemini ${modelAdi} hata: ${e?.message}`);
+async function githubKaydet() {
+  try {
+    const obj = Object.fromEntries(kullanimMap);
+    const yeniJson = JSON.stringify(obj, null, 2);
+
+    // sha almak için önce oku
+    const mevcut = await githubDosyaOku();
+    const body = {
+      message: `Kullanım güncellendi — ${new Date().toISOString()}`,
+      content: Buffer.from(yeniJson).toString('base64'),
+    };
+    if (mevcut?.sha) body.sha = mevcut.sha;
+
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE}`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `token ${GITHUB_TOKEN}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
       }
+    );
+    if (res.ok) {
+      sonYedekJson = yeniJson;
+      console.log('[GitHub] Veri kaydedildi.');
+    } else {
+      const err = await res.json();
+      console.log('[GitHub] Kayıt hatası:', err.message);
     }
-    console.log('[AI] Tüm Gemini modelleri başarısız → Groq deneniyor...');
+  } catch (e) {
+    console.log('[GitHub] Kayıt exception:', e.message);
+  }
+}
+
+// Her 5 dakikada bir otomatik kaydet
+setInterval(githubKaydet, 5 * 60 * 1000);
+
+// ──────────────────────────────────────────────────────────────
+//  12 SAATLİK LİMİT
+// ──────────────────────────────────────────────────────────────
+function hakKontrol(userId) {
+  const simdi = Date.now();
+  const kayit = kullanimMap.get(userId);
+
+  if (!kayit || (simdi - kayit.baslangic) >= LIMIT_MS) {
+    // Süresi dolmuş veya ilk kez
+    return { kalan: LIMIT, bitti: false, yeni: true };
   }
 
-  // 3️⃣  Groq
-  if (GROQ_API_KEY) {
-    try {
-      const groq = new Groq({ apiKey: GROQ_API_KEY });
-      const res = await groq.chat.completions.create({
-        model: 'llama3-8b-8192',
-        messages,
-        max_tokens: 1000,
-      });
-      return res.choices[0].message.content.trim();
-    } catch (e) {
-      console.log(`[AI] Groq hata (${e?.message})`);
-    }
-  }
+  const kalan = LIMIT - kayit.sayi;
+  const kalanMs = LIMIT_MS - (simdi - kayit.baslangic);
+  const kalanDak = Math.ceil(kalanMs / 60000);
+  return { kalan, bitti: kalan <= 0, kalanDak, yeni: false };
+}
 
-  return '❌ Şu an tüm AI servisleri meşgul veya API anahtarı eksik. Biraz sonra tekrar dene!';
+function hakKullan(userId) {
+  const simdi = Date.now();
+  const kayit = kullanimMap.get(userId);
+
+  if (!kayit || (simdi - kayit.baslangic) >= LIMIT_MS) {
+    kullanimMap.set(userId, { baslangic: simdi, sayi: 1 });
+  } else {
+    kayit.sayi += 1;
+    kullanimMap.set(userId, kayit);
+  }
 }
 
 // ──────────────────────────────────────────────────────────────
-//  DISCORD İSTEMCİSİ
+//  GROQ
+// ──────────────────────────────────────────────────────────────
+const groq = new Groq({ apiKey: GROQ_API_KEY });
+
+async function askGroq(soru) {
+  try {
+    const res = await groq.chat.completions.create({
+      model: 'llama3-70b-8192',
+      messages: [
+        { role: 'system', content: AI_SYSTEM_PROMPT },
+        { role: 'user',   content: soru },
+      ],
+      max_tokens: 1000,
+    });
+    return res.choices[0].message.content.trim();
+  } catch (e) {
+    console.log('[Groq] Hata:', e.message);
+    return '❌ Şu an AI servisine ulaşılamıyor. Biraz sonra tekrar dene!';
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  DISCORD
 // ──────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
@@ -122,101 +177,56 @@ const client = new Client({
   ],
 });
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`✅ Bot hazır: ${client.user.tag}`);
-  console.log(`📌 Aktif AI'lar: ${[
-    OPENAI_API_KEY  ? 'ChatGPT' : null,
-    GEMINI_API_KEY  ? 'Gemini'  : null,
-    GROQ_API_KEY    ? 'Groq'    : null,
-  ].filter(Boolean).join(' → ') || 'YOK'}`);
+  await githubYukle();
 });
 
-// ──────────────────────────────────────────────────────────────
-//  GÜNLÜK LİMİT — kullanıcı başına günde 30 hak
-// ──────────────────────────────────────────────────────────────
-const GUNLUK_LIMIT = 30;
-// Map<userId, { tarih: 'YYYY-MM-DD', sayi: number }>
-const kullanimMap = new Map();
-
-function bugun() {
-  return new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
-}
-
-function hakKontrol(userId) {
-  const bugunTarih = bugun();
-  const kayit = kullanimMap.get(userId);
-
-  // Yeni gün veya hiç kayıt yoksa sıfırla
-  if (!kayit || kayit.tarih !== bugunTarih) {
-    kullanimMap.set(userId, { tarih: bugunTarih, sayi: 0 });
-    return { kalan: GUNLUK_LIMIT, bitti: false };
-  }
-
-  const kalan = GUNLUK_LIMIT - kayit.sayi;
-  return { kalan, bitti: kalan <= 0 };
-}
-
-function hakKullan(userId) {
-  const bugunTarih = bugun();
-  const kayit = kullanimMap.get(userId) || { tarih: bugunTarih, sayi: 0 };
-  kayit.sayi += 1;
-  kullanimMap.set(userId, kayit);
-}
-
-// ──────────────────────────────────────────────────────────────
-//  @ ETİKETİ ALGILAMA
-// ──────────────────────────────────────────────────────────────
 client.on('messageCreate', async (message) => {
-  // Botlardan gelen mesajları yoksay
   if (message.author.bot) return;
-
-  // Sadece belirli kanalda çalış
-  if (message.channel.id !== '1526015242365042721') return;
-
-  // Sadece bot @ etiketlenince çalış
+  if (message.channel.id !== KANAL_ID) return;
   if (!message.mentions.has(client.user)) return;
 
-  // @ etiketini temizle, asıl soruyu al
-  const soru = message.content
-    .replace(/<@!?[\d]+>/g, '')
-    .trim();
+  const soru = message.content.replace(/<@!?[\d]+>/g, '').trim();
 
-  // Soru yoksa yönlendir
   if (!soru) {
-    return message.reply('Merhaba! Bana bir şey sormak için @ etiketle birlikte soruyu yaz. 😊');
+    return message.reply('Merhaba! Sormak istediğin şeyi @ ile birlikte yaz. 😊');
   }
 
-  // Günlük limit kontrolü
-  const { kalan, bitti } = hakKontrol(message.author.id);
+  const { kalan, bitti, kalanDak } = hakKontrol(message.author.id);
+
   if (bitti) {
-    return message.reply(`⛔ Bugünlük ${GUNLUK_LIMIT} soru hakkını doldurdun. Yarın tekrar kullanabilirsin!`);
+    const saat = Math.floor(kalanDak / 60);
+    const dak  = kalanDak % 60;
+    const sure = saat > 0 ? `${saat} saat ${dak} dakika` : `${dak} dakika`;
+    return message.reply(`⛔ 12 saatlik ${LIMIT} soru hakkını doldurdun. **${sure}** sonra tekrar kullanabilirsin!`);
   }
 
-  // Hakkı kullan
   hakKullan(message.author.id);
+  const kalanSonra = kalan - 1;
 
-  // "Yazıyor..." göster
   await message.channel.sendTyping().catch(() => {});
 
-  // AI'dan cevap al
-  const cevap = await askAI(soru);
+  const cevap = await askGroq(soru);
 
-  // Cevap 2000 karakterden uzunsa parçalara böl (Discord limiti)
-  if (cevap.length <= 2000) {
-    await message.reply(cevap);
+  const footer = `\n\n-# 📊 Kalan hakkın: ${kalanSonra}/${LIMIT} (12 saatlik)`;
+  const tamCevap = cevap + footer;
+
+  if (tamCevap.length <= 2000) {
+    await message.reply(tamCevap);
   } else {
     const parcalar = cevap.match(/[\s\S]{1,1990}/g) || [];
     await message.reply(parcalar[0]);
     for (let i = 1; i < parcalar.length; i++) {
       await message.channel.send(parcalar[i]);
     }
+    await message.channel.send(footer.trim());
   }
 });
 
 client.login(DISCORD_TOKEN);
 
-// Render'ın port kontrolünü geçmek için basit HTTP sunucusu
-const http = require('http');
+// Render port kontrolü
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => res.end('Bot çalışıyor!')).listen(PORT, () => {
   console.log(`🌐 HTTP sunucusu ${PORT} portunda açık`);
