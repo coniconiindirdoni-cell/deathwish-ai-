@@ -27,7 +27,7 @@ const Groq                          = require('groq-sdk');
 // ──────────────────────────────────────────────────────────────
 const DISCORD_TOKEN    = process.env.DISCORD_TOKEN    || '';
 const OPENAI_API_KEY   = process.env.OPENAI_API_KEY   || '';
-const GEMINI_API_KEY   = process.env.GEMINI_API_KEY   || 'AQ.Ab8RN6K3bHdgghqbkh-RYGCAtymOEoWQdKUrJzo97wNp9NueQg';
+const GEMINI_API_KEY   = process.env.GEMINI_API_KEY   || 'AQ.Ab8RN6J2vLoe1u36Y06SSSCXOS7CjezPIWl61WBTDy7qkwi0PA';
 const GROQ_API_KEY     = process.env.GROQ_API_KEY     || '';
 const AI_SYSTEM_PROMPT = process.env.AI_SYSTEM_PROMPT ||
   'Sen yardımcı bir Discord botusun. Türkçe konuş, kısa ve net cevaplar ver.';
@@ -65,16 +65,25 @@ async function askAI(soru) {
     }
   }
 
-  // 2️⃣  Gemini
+  // 2️⃣  Gemini (direkt REST API — SDK bypass)
   if (GEMINI_API_KEY) {
-    const geminiModels = ['gemini-1.5-flash', 'gemini-pro', 'gemini-1.0-pro'];
+    const geminiModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro'];
     for (const modelAdi of geminiModels) {
       try {
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: modelAdi });
-        const tamSoru = `${AI_SYSTEM_PROMPT}\n\nKullanıcı: ${soru}`;
-        const result = await model.generateContent(tamSoru);
-        const cevap = result.response.text().trim();
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelAdi}:generateContent?key=${GEMINI_API_KEY}`;
+        const body = JSON.stringify({
+          system_instruction: { parts: [{ text: AI_SYSTEM_PROMPT }] },
+          contents: [{ parts: [{ text: soru }] }],
+        });
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message || res.status);
+        const cevap = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (!cevap) throw new Error('Boş cevap');
         console.log(`[AI] Gemini (${modelAdi}) başarılı`);
         return cevap;
       } catch (e) {
