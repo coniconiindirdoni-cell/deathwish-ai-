@@ -67,17 +67,21 @@ async function askAI(soru) {
 
   // 2️⃣  Gemini
   if (GEMINI_API_KEY) {
-    try {
-      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({
-        model: 'gemini-pro',
-        systemInstruction: AI_SYSTEM_PROMPT,
-      });
-      const result = await model.generateContent(soru);
-      return result.response.text().trim();
-    } catch (e) {
-      console.log(`[AI] Gemini hata (${e?.message}) → Groq deneniyor...`);
+    const geminiModels = ['gemini-1.5-flash', 'gemini-pro', 'gemini-1.0-pro'];
+    for (const modelAdi of geminiModels) {
+      try {
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: modelAdi });
+        const tamSoru = `${AI_SYSTEM_PROMPT}\n\nKullanıcı: ${soru}`;
+        const result = await model.generateContent(tamSoru);
+        const cevap = result.response.text().trim();
+        console.log(`[AI] Gemini (${modelAdi}) başarılı`);
+        return cevap;
+      } catch (e) {
+        console.log(`[AI] Gemini ${modelAdi} hata: ${e?.message}`);
+      }
     }
+    console.log('[AI] Tüm Gemini modelleri başarısız → Groq deneniyor...');
   }
 
   // 3️⃣  Groq
