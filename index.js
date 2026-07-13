@@ -27,7 +27,7 @@ const Groq                          = require('groq-sdk');
 // ──────────────────────────────────────────────────────────────
 const DISCORD_TOKEN    = process.env.DISCORD_TOKEN    || '';
 const OPENAI_API_KEY   = process.env.OPENAI_API_KEY   || '';
-const GEMINI_API_KEY   = process.env.GEMINI_API_KEY   || '';
+const GEMINI_API_KEY   = process.env.GEMINI_API_KEY   || 'AQ.Ab8RN6K3bHdgghqbkh-RYGCAtymOEoWQdKUrJzo97wNp9NueQg';
 const GROQ_API_KEY     = process.env.GROQ_API_KEY     || '';
 const AI_SYSTEM_PROMPT = process.env.AI_SYSTEM_PROMPT ||
   'Sen yardımcı bir Discord botusun. Türkçe konuş, kısa ve net cevaplar ver.';
@@ -70,7 +70,7 @@ async function askAI(soru) {
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-pro',
         systemInstruction: AI_SYSTEM_PROMPT,
       });
       const result = await model.generateContent(soru);
@@ -157,6 +157,9 @@ client.on('messageCreate', async (message) => {
   // Botlardan gelen mesajları yoksay
   if (message.author.bot) return;
 
+  // Sadece belirli kanalda çalış
+  if (message.channel.id !== '1526015242365042721') return;
+
   // Sadece bot @ etiketlenince çalış
   if (!message.mentions.has(client.user)) return;
 
@@ -198,3 +201,10 @@ client.on('messageCreate', async (message) => {
 });
 
 client.login(DISCORD_TOKEN);
+
+// Render'ın port kontrolünü geçmek için basit HTTP sunucusu
+const http = require('http');
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => res.end('Bot çalışıyor!')).listen(PORT, () => {
+  console.log(`🌐 HTTP sunucusu ${PORT} portunda açık`);
+});
