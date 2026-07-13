@@ -15,7 +15,7 @@ const http                          = require('http');
 //  AYARLAR
 // ──────────────────────────────────────────────────────────────
 const DISCORD_TOKEN    = process.env.DISCORD_TOKEN  || '';
-const GROQ_botuşuI_KEY     = process.env.GROQ_API_KEY   || '';
+const GROQ_API_KEY     = process.env.GROQ_API_KEY   || '';
 const GITHUB_TOKEN     = process.env.GITHUB_TOKEN   || '';
 const GITHUB_REPO      = process.env.GITHUB_REPO    || 'coniconiindirdoni-cell/ai-backup';
 const GITHUB_FILE      = 'kullanim.json';
